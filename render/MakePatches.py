@@ -14,7 +14,7 @@
 
 
 import sys, os, os.path as op
-sys.path.insert(0, op.join(os.getenv('SHUFFLER_PATH'), 'lib'))
+sys.path.insert(0, op.join(os.getenv('SHUFFLER_PATH'), 'lib')) 
 import json
 import logging
 import subprocess
@@ -35,7 +35,7 @@ from imageio import imread, imwrite
 
 if os.getenv('SHUFFLER_PATH') is None:
   raise Exception('Environmental variable SHUFFLER_PATH is not defined.')
-from interfaceWriter import DatasetWriter
+from shuffler.interface.shuffler_dataset import DatasetWriter
 
 from renderUtil import atcadillac
 
@@ -43,7 +43,7 @@ WORK_PATCHES_DIR = atcadillac('/tmp/blender/current-patch')
 JOB_INFO_NAME    = 'job_info.json'
 OUT_INFO_NAME    = 'out_info.json'
 
-FNULL = open('/dev/null', 'w')
+FNULL = open(os.devnull, 'w')
 
 # placing other cars
 PROB_SAME_LANE    = 0.3
@@ -370,13 +370,14 @@ def write_results(dataset_writer, patch_entries, use_90turn):
     
 
 def _fetch_cad_models(cursor, clause):
-  cursor.execute('SELECT collection_id,model_id,dims_L,dims_W,dims_H,color FROM cad %s' % clause)
+  cursor.execute('SELECT collection_id,model_id,dims_L,dims_W,dims_H,color,id FROM cad %s' % clause)
   models = cursor.fetchall()
   shuffle(models)
   models = [{'collection_id': x[0], 
              'model_id': x[1], 
              'dims': {'x': x[2], 'y': x[3], 'z': x[4]},
-             'color': x[5]
+             'color': x[5],
+             'id': x[6]
             } for x in models]
   return models
 

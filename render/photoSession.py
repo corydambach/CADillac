@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import bpy
 import sys, os, os.path as op
 import json
@@ -29,6 +28,10 @@ from render.common import *
 from cads.collectionUtilities import getBlendPath
 from render.renderUtil import atcadillac
 
+import os
+emergency_log = r'D:\\EMERGENCY_LOG.txt'
+with open(emergency_log, 'w') as f: 
+    f.write("photoSession.py IS RUNNING!\n")
 
 COLLECTIONS_DIR  = atcadillac('CAD')
 ROAD_TEXTURE_DIR = atcadillac('resources/textures/road')
@@ -66,14 +69,14 @@ def choose_params(azimuth_low, azimuth_high, pitch_low, pitch_high):
         (params['azimuth'], params['altitude']))
    
     # assign a random texture from the directory
-    road_texture_path = choice(glob(op.join(ROAD_TEXTURE_DIR, '*.jpg')))
+    road_texture_path = choice(glob(op.join(ROAD_TEXTURE_DIR, '*.png')))
     logging.info ('road_texture_path: %s' % road_texture_path)
     params['road_texture_path'] = road_texture_path
     # pick a random road width
     params['road_width'] = normal(15, 5)
 
     # assign a random texture from the directory
-    buidling_texture_path = choice(glob(op.join(BLDG_TEXTURE_DIR, '*.jpg')))
+    buidling_texture_path = choice(glob(op.join(BLDG_TEXTURE_DIR, '*.png')))
     logging.info ('buidling_texture_path: %s' % buidling_texture_path)
     params['buidling_texture_path'] = buidling_texture_path
     # pick a random height dim
@@ -196,7 +199,7 @@ def photo_session (job):
 
     car_names = []
     for i,vehicle in enumerate(vehicles):
-        blend_path = getBlendPath(vehicle['collection_id'], vehicle['model_id'])
+        blend_path = getBlendPath(vehicle['id'])
 
         assert op.exists(blend_path), 'blend path does not exist' % blend_path
         # if 'dims' not in vehicle or not op.exists(blend_path):
@@ -240,6 +243,12 @@ def photo_session (job):
                                 'model_id':     vehicles[0]['model_id'],
                                 'color':        vehicles[0]['color']
                                 }, indent=4))
+            
+        print( "$$$" )
+        print( op.join(WORK_DIR, JOB_INFO_NAME) )
+
+with open(emergency_log, 'w') as f: 
+    f.write("photoSession.py IS RUNNING!\n")
 
 job = json.load(open( op.join(WORK_DIR, JOB_INFO_NAME) ))
 logging.basicConfig(level=job['logging'], stream=sys.stderr, 

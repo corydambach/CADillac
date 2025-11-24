@@ -33,6 +33,20 @@ if not op.exists(COLLECTION_WORK_DIR):
     os.makedirs(COLLECTION_WORK_DIR)
 
 
+def _get_blender_executable():
+  """Get the correct blender executable path for the current platform."""
+  blender_root = os.getenv('BLENDER_ROOT')
+  if blender_root is None:
+    raise Exception('BLENDER_ROOT environment variable is not set.')
+  
+  if os.name == 'nt':  # Windows
+    blender_exe = op.join(blender_root, 'blender.exe')
+  else:  # Unix/Linux/Mac
+    blender_exe = op.join(blender_root, 'blender')
+  
+  return blender_exe
+
+
 def _debug_execute(s, args):
   logging.debug('Going to execute "%s" with arguments %s' % (s, str(args)))
 
@@ -69,8 +83,8 @@ def _renderExample (collection_id, model_id, overwrite):
     f.write(json.dumps(model, indent=2))
 
   try:
-    command = ['%s/blender' % os.getenv('BLENDER_ROOT'), '--background', '--python',
-               atcadillac('src/augmentation/collections/renderExample.py')]
+    command = [_get_blender_executable(), '--background', '--python',
+               atcadillac(op.join('src', 'augmentation', 'collections', 'renderExample.py'))]
     returncode = subprocess.call (command, shell=False)
     logging.info ('blender returned code %s' % str(returncode))
   except:
@@ -154,8 +168,8 @@ def _getDimsFromBlender(cursor, collection_id, model_id):
     f.write(json.dumps(model, indent=4))
 
   try:
-    command = ['%s/blender' % os.getenv('BLENDER_ROOT'), '--background', '--python',
-               atcadillac('src/augmentation/collections/getDims.py')]
+    command = [_get_blender_executable(), '--background', '--python',
+               atcadillac(op.join('src', 'augmentation', 'collections', 'getDims.py'))]
     returncode = subprocess.call (command, shell=False)
     logging.debug('Blender returned code %s' % str(returncode))
 
@@ -267,7 +281,7 @@ def importCollectionsParser(subparsers):
 
 def importCollections(cursor, args):
   for collection_id in args.collection_ids:
-    json_path = atcadillac('CAD/%s/collection.json' % collection_id)
+    json_path = atcadillac(op.join('CAD', collection_id, 'collection.json'))
     collection = json.load(open(json_path))
     logging.info('Found %d models in the collection' % len(collection['vehicles']))
     _importCollection(cursor, collection, args.overwrite)
@@ -522,7 +536,7 @@ def makeGrid (cursor, args):
 
   # Load empty image.
   if not args.swidth:
-    empty_path = atcadillac('scenes/empty-import.png')
+    empty_path = atcadillac(op.join('scenes', 'empty-import.png'))
     if not op.exists(empty_path):
       raise Exception('Empty image does not exist at %s.' % empty_path)
     empty = cv2.imread(empty_path, -1)
@@ -717,8 +731,7 @@ def manuallyEditInBlender(cursor, args):
       logging.debug('Button "space", will edit.')
       # i += 1
       try:
-        command = ['%s/blender' % os.getenv('BLENDER_ROOT'),
-                   getBlendPath(collection_id, model_id)]
+        command = [_get_blender_executable(), getBlendPath(collection_id, model_id)]
         returncode = subprocess.call (command, shell=False)
         logging.debug('Blender returned code %s' % str(returncode))
         # Re-render.
@@ -955,8 +968,8 @@ def fillDimsFromCarQueryDb(cursor, args):
         f.write(json.dumps(model, indent=2))
 
       try:
-        command = ['%s/blender' % os.getenv('BLENDER_ROOT'), '--background', '--python',
-                   atcadillac('src/augmentation/collections/scale.py')]
+        command = [_get_blender_executable(), '--background', '--python',
+                   atcadillac(op.join('src', 'augmentation', 'collections', 'scale.py'))]
         returncode = subprocess.call (command, shell=False)
         logging.info ('blender returned code %s' % str(returncode))
         # Re-render.
@@ -968,8 +981,7 @@ def fillDimsFromCarQueryDb(cursor, args):
 
     if button == ord('e'):
       try:
-        command = ['%s/blender' % os.getenv('BLENDER_ROOT'),
-                   getBlendPath(collection_id, model_id)]
+        command = [_get_blender_executable(), getBlendPath(collection_id, model_id)]
         returncode = subprocess.call (command, shell=False)
         logging.debug('Blender returned code %s' % str(returncode))
         # Re-render.

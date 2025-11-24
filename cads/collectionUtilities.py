@@ -40,12 +40,12 @@ def getExamplePath(collection_id, model_id):
   return example_path
 
 
-def getBlendPath(collection_id, model_id):
-  blend_path = atcadillac(op.join('CAD/%s/blend/%s.blend' %
-      (collection_id, model_id)))
-  assert op.exists(op.dirname(blend_path)), 'Dir of %s must exist' % blend_path
-  return blend_path
-
+def getBlendPath( id: str ):
+  blend_path_flat = atcadillac(op.join('blend', '{}.blend'.format(id)))
+  if op.exists(blend_path_flat):
+    logging.debug( 'Using flat blend structure for ' + id )
+    return blend_path_flat
+  raise FileNotFoundError( 'Blend file not found for ' + id + 'in organized or flat structure')
 
 def safeConnect (in_path, out_path):
   '''
