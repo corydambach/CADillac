@@ -20,6 +20,10 @@ from numpy.random import normal, uniform
 import numpy as np
 from mathutils import Vector
 
+sys.path.insert(0, op.dirname(op.dirname(os.path.realpath(__file__)))) # = '..'
+from render.common import *
+from cads.collectionUtilities import getBlendPath
+from render.renderUtil import atcadillac
 
 # ── PATHS ───────────────────────────────────────────────────────────
 if not os.getenv('CADILLAC_DATA_PATH'):
@@ -37,13 +41,12 @@ JOB_INFO_NAME = 'job_info.json'
 
 # ── RENDERING PARAMS ────────────────────────────────────────────────
 PIXEL_SIZE_METERS = 0.30
-OUTPUT_SIZE = 64
+OUTPUT_SIZE = 32
 RENDER_SIZE = int(ceil(OUTPUT_SIZE * sqrt(2))) + 2  # ~48, enough margin for any rotation
 CAMERA_DIST = 50.0
 
 SUN_ALTITUDE_MIN = 20
-SUN_ALTITUDE_MAX = 70
-
+SUN_ALTITUDE_MAX = 90
 
 def get_blend_path(file_id):
     path = atcadillac(op.join('blend', '%s.blend' % file_id))
@@ -64,7 +67,7 @@ def import_blend_car(blend_path, model_id, car_name=None):
 
 
 # ── WEATHER ─────────────────────────────────────────────────────────
-def set_weather(params):
+def set_weather2(params):
     weather = params.get('weather', 'Sunny')
     sun = bpy.data.objects['-Sun']
 
@@ -104,54 +107,9 @@ def setup_camera(ona_deg):
     z = CAMERA_DIST * cos(ona_rad)
 
     camera_obj.location = (x, y, z)
-
+    
     # Fixed rotation: tilt by ONA from +X, always same orientation
     camera_obj.rotation_euler = (ona_rad, 0, pi / 2)
-
-
-# ── IMAGE ROTATION & CROP ──────────────────────────────────────────
-def rotate_and_crop(input_path, output_path, angle_deg, output_size):
-    """Load rendered image, rotate by angle_deg, crop center to output_size.
-    Uses nearest-neighbor rotation via numpy."""
-    # Load image
-    img = bpy.data.images.load(input_path)
-    w, h = img.size
-    pixels = np.array(img.pixels[:])  # flat RGBA array
-    pixels = pixels.reshape((h, w, 4))
-    pixels = np.flipud(pixels)  # Blender stores bottom-up
-
-    # Rotation matrix
-    angle_rad = angle_deg * pi / 180
-    cos_a = cos(angle_rad)
-    sin_a = sin(angle_rad)
-
-    # Output centered on input center
-    cx, cy = w / 2.0, h / 2.0
-    out = np.zeros((output_size, output_size, 4), dtype=np.float32)
-    offset = (w - output_size) / 2.0
-
-    for oy in range(output_size):
-        for ox in range(output_size):
-            # Map output pixel to input pixel through inverse rotation
-            dx = ox + offset - cx
-            dy = oy + offset - cy
-            sx = int(cos_a * dx + sin_a * dy + cx)
-            sy = int(-sin_a * dx + cos_a * dy + cy)
-            if 0 <= sx < w and 0 <= sy < h:
-                out[oy, ox] = pixels[sy, sx]
-
-    # Save via Blender
-    out_img = bpy.data.images.new("rotated", output_size, output_size)
-    out = np.flipud(out)  # back to Blender bottom-up
-    out_img.pixels = out.flatten().tolist()
-    out_img.filepath_raw = output_path
-    out_img.file_format = 'PNG'
-    out_img.save_render(output_path)
-
-    # Cleanup
-    bpy.data.images.remove(img)
-    bpy.data.images.remove(out_img)
-
 
 # ── MAIN RENDERING ──────────────────────────────────────────────────
 def render_session(job):
@@ -205,6 +163,14 @@ def render_session(job):
     for mat in ground_obj.data.materials:
         if mat:
             mat.diffuse_intensity = 0.3
+    bpy.data.objects['-Ground'].parent = bpy.data.objects[car_names[0]]
+    # Road texture — fixed for the entire session
+    road_textures = glob(op.join(ROAD_TEXTURE_DIR, '*.*'))
+    if road_textures:
+        bpy.data.images['ground'].filepath = choice(road_textures)
+
+    # All objects that rotate together for satellite azimuth
+    scene_objects = car_names + ['-Sun']
 
     # Render each snapshot
     for i in range(job['num_per_session']):
@@ -218,22 +184,17 @@ def render_session(job):
         # Camera fixed direction, only ONA changes
         setup_camera(ona)
 
-        # Rotate car by -sat_azimuth so camera sees correct side
+        # Set weather and sun angle
+        set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
+
+        # Rotate entire scene for satellite azimuth
         sat_az_rad = sat_azimuth * pi / 180
-        for car_name in car_names:
-            obj = bpy.data.objects[car_name]
+        for name in scene_objects:
+            obj = bpy.data.objects[name]
             bpy.ops.object.select_all(action='DESELECT')
             obj.select = True
             bpy.context.scene.objects.active = obj
             bpy.ops.transform.rotate(value=-sat_az_rad, axis=(0, 0, 1))
-
-        # Set weather
-        set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
-
-        # Road texture
-        road_textures = glob(op.join(ROAD_TEXTURE_DIR, '*.*'))
-        if road_textures:
-            bpy.data.images['ground'].filepath = choice(road_textures)
 
         bpy.context.scene.update()
 
@@ -248,9 +209,9 @@ def render_session(job):
         except Exception as e:
             logging.error("Render error: %s" % str(e))
 
-        # Undo car rotation
-        for car_name in car_names:
-            obj = bpy.data.objects[car_name]
+        # Undo scene rotation
+        for name in scene_objects:
+            obj = bpy.data.objects[name]
             bpy.ops.object.select_all(action='DESELECT')
             obj.select = True
             bpy.context.scene.objects.active = obj
@@ -273,7 +234,6 @@ def render_session(job):
             json.dump(out_info, f, indent=2)
 
         logging.info("Snapshot %d done" % i)
-
 
 # ── ENTRY POINT ─────────────────────────────────────────────────────
 WORK_DIR = os.getenv('WORK_DIR_OVERRIDE')
