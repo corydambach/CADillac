@@ -45,7 +45,7 @@ OUTPUT_SIZE = 32
 RENDER_SIZE = int(ceil(OUTPUT_SIZE * sqrt(2))) + 2  # ~48, enough margin for any rotation
 CAMERA_DIST = 50.0
 
-SUN_ALTITUDE_MIN = 20
+SUN_ALTITUDE_MIN = 30
 SUN_ALTITUDE_MAX = 90
 
 def get_blend_path(file_id):
@@ -64,30 +64,6 @@ def import_blend_car(blend_path, model_id, car_name=None):
     if car_name:
         obj.name = car_name
     return obj
-
-
-# ── WEATHER ─────────────────────────────────────────────────────────
-def set_weather2(params):
-    weather = params.get('weather', 'Sunny')
-    sun = bpy.data.objects['-Sun']
-
-    if weather in ('Rainy', 'Wet'):
-        sun.hide_render = True
-        sun.hide = True
-        mat = bpy.data.materials.get('Material-wet-asphalt')
-    else:
-        sun.hide_render = False
-        sun.hide = False
-        sun.data.energy = normal(3, 1.0)
-        sun.data.color = (1.0, 0.9163, 0.6905)
-        mat = bpy.data.materials.get('Material-dry-asphalt')
-
-    if mat:
-        ground = bpy.data.objects['-Ground']
-        if len(ground.data.materials):
-            ground.data.materials[0] = mat
-        else:
-            ground.data.materials.append(mat)
 
 
 # ── CAMERA ──────────────────────────────────────────────────────────
@@ -135,7 +111,8 @@ def render_session(job):
 
     # Import vehicle with fixed random orientation
     car_azimuth = uniform(low=0, high=360)
-    file_id = vehicles[0]['file_id']
+    # file_id = vehicles[0]['file_id']
+    file_id = '%s_s%03d' % (vehicles[0]['file_id'], job['job_id'])
 
     car_names = []
     for i, vehicle in enumerate(vehicles):
@@ -143,11 +120,10 @@ def render_session(job):
         car_name = 'car-%d' % i
         car_names.append(car_name)
         import_blend_car(blend_path, vehicle['model_id'], car_name)
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.data.objects[car_name].select = True
-        bpy.context.scene.objects.active = bpy.data.objects[car_name]
-        bpy.ops.transform.translate(value=(vehicle['x'], vehicle['y'], 0))
-        bpy.ops.transform.rotate(value=car_azimuth * pi / 180, axis=(0, 0, 1))
+        obj = bpy.data.objects[car_name]
+        obj.location.x += vehicle['x']
+        obj.location.y += vehicle['y']
+        obj.rotation_euler[2] += car_azimuth * pi / 180
 
     # Hide building
     bpy.data.objects['-Building'].hide_render = True
@@ -155,22 +131,25 @@ def render_session(job):
     # Materials
     for m in bpy.data.materials:
         m.use_transparent_shadows = True
+        m.ambient = 0.0
 
     # Ground setup
     ground_obj = bpy.data.objects['-Ground']
-    ground_obj.dimensions.x = 100
-    ground_obj.dimensions.y = 100
+    ground_obj.dimensions.x = 12
+    ground_obj.dimensions.y = 12
     for mat in ground_obj.data.materials:
         if mat:
-            mat.diffuse_intensity = 0.3
-    bpy.data.objects['-Ground'].parent = bpy.data.objects[car_names[0]]
+            mat.diffuse_intensity = 0.5
+
     # Road texture — fixed for the entire session
     road_textures = glob(op.join(ROAD_TEXTURE_DIR, '*.*'))
     if road_textures:
         bpy.data.images['ground'].filepath = choice(road_textures)
 
-    # All objects that rotate together for satellite azimuth
-    scene_objects = car_names + ['-Sun']
+    # Rotate cars + ground for capture azimuth; post_process_renders() rotates
+    # the raster back so the orthorectified background stays fixed.
+    # Do not rotate -Sun here; set_weather() already controls sun angle.
+    scene_objects = car_names + ['-Ground']
 
     # Render each snapshot
     for i in range(job['num_per_session']):
@@ -186,15 +165,36 @@ def render_session(job):
 
         # Set weather and sun angle
         set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
+        world = bpy.data.worlds.get('World')
+        sun = bpy.data.objects.get('-Sun')
 
-        # Rotate entire scene for satellite azimuth
+        logging.info("WORLD horizon=%s ambient=%s exposure=%s",
+            tuple(world.horizon_color) if world else None,
+            tuple(world.ambient_color) if world else None,
+            getattr(world, 'exposure', None) if world else None)
+
+        if sun:
+            logging.info("SUN type=%s energy=%s rot=%s",
+                    sun.data.type,
+                    getattr(sun.data, 'energy', None),
+                    tuple(round(v, 3) for v in sun.rotation_euler))
+
+        for m in bpy.data.materials:
+            name = m.name.lower()
+            if any(x in name for x in ['glass', 'window', 'windshield', 'windscreen']):
+                logging.info("GLASS mat=%s diffuse=%s diff_intensity=%s ambient=%s spec=%s alpha=%s",
+                            m.name,
+                            tuple(m.diffuse_color),
+                            getattr(m, 'diffuse_intensity', None),
+                            getattr(m, 'ambient', None),
+                            getattr(m, 'specular_intensity', None),
+                            getattr(m, 'alpha', None))
+
+        # Rotate capture frame before orthorectification
         sat_az_rad = sat_azimuth * pi / 180
         for name in scene_objects:
             obj = bpy.data.objects[name]
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select = True
-            bpy.context.scene.objects.active = obj
-            bpy.ops.transform.rotate(value=-sat_az_rad, axis=(0, 0, 1))
+            obj.rotation_euler[2] -= sat_az_rad
 
         bpy.context.scene.update()
 
@@ -212,10 +212,7 @@ def render_session(job):
         # Undo scene rotation
         for name in scene_objects:
             obj = bpy.data.objects[name]
-            bpy.ops.object.select_all(action='DESELECT')
-            obj.select = True
-            bpy.context.scene.objects.active = obj
-            bpy.ops.transform.rotate(value=sat_az_rad, axis=(0, 0, 1))
+            obj.rotation_euler[2] += sat_az_rad
 
         # Write metadata
         out_info = {
@@ -224,6 +221,7 @@ def render_session(job):
             'color': vehicles[0].get('color', 'unknown'),
             'car_azimuth': float(car_azimuth),
             'sat_azimuth': float(sat_azimuth),
+            'capture_azimuth_prior_to_orthorect': float(sat_azimuth),
             'off_nadir_angle': float(ona),
             'pixel_size_m': PIXEL_SIZE_METERS,
             'weather': weather,
