@@ -27,7 +27,8 @@ SCENE_PATH = op.join(op.dirname(os.path.realpath(__file__)), 'resources', 'photo
 
 # ── RENDERING PARAMS ────────────────────────────────────────────────
 PIXEL_SIZE_METERS = 0.30
-OUTPUT_SIZE = 256
+OUTPUT_SIZE = 128
+WORLD_SIZE = 32  # framing: how many "original" pixels worth of world to show
 CAMERA_DIST = 50.0
 
 # View definitions: (rotation_x, rotation_y, rotation_z) for the camera
@@ -64,7 +65,7 @@ def setup_camera(view_name):
     camera_data = camera_obj.data
 
     camera_data.type = 'ORTHO'
-    camera_data.ortho_scale = PIXEL_SIZE_METERS * OUTPUT_SIZE
+    camera_data.ortho_scale = PIXEL_SIZE_METERS * WORLD_SIZE
 
     camera_obj.location = cfg['location']
     camera_obj.rotation_euler = cfg['rotation']
