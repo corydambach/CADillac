@@ -96,6 +96,11 @@ def setup_scene():
     if '-Building' in bpy.data.objects:
         bpy.data.objects['-Building'].hide_render = True
 
+    # White background
+    world = bpy.data.worlds['World']
+    world.horizon_color = (1, 1, 1)
+    world.zenith_color = (1, 1, 1)
+
     # Neutral lighting: bright, even, overhead sun
     set_weather({'weather': 'Sunny', 'sun_altitude': 80, 'sun_azimuth': 180})
 
