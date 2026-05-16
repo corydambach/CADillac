@@ -39,7 +39,7 @@ from shuffler.interface.shuffler_dataset import DatasetWriter
 
 from renderUtil import atcadillac
 
-WORK_PATCHES_DIR = atcadillac('/tmp/blender/current-patch')
+WORK_PATCHES_DIR = r'D:\tmp\blender\current-patch'
 JOB_INFO_NAME    = 'job_info.json'
 OUT_INFO_NAME    = 'out_info.json'
 
@@ -327,10 +327,8 @@ def run_patches_job (job):
   try:
     command = [os.getenv('BLENDER_PATH'), '--background', '--python',
                op.join(op.dirname(os.path.realpath(__file__)), 'photoSession.py')]
-    if job['logging'] == 10:
-      returncode = subprocess.call (command, shell=False) #, stdout=FNULL, stderr=FNULL)
-    else:
-      returncode = subprocess.call (command, shell=False, stdout=FNULL)#, stderr=FNULL)
+    # Don't suppress output so we can see errors
+    returncode = subprocess.call(command, shell=False)
     logging.debug ('blender returned code %s' % str(returncode))
     patch_entries = [process_scene_dir(patch_dir) for
             patch_dir in sorted(glob(op.join(WORK_DIR, '??????')))]
@@ -344,7 +342,7 @@ def run_patches_job (job):
   return patch_entries
 
 
-def write_results(dataset_writer, patch_entries, use_90turn):
+def write_results(dataset_writer: DatasetWriter, patch_entries, use_90turn):
   if patch_entries is None:
     logging.warning('Dropping the whole scene.')
     return
@@ -356,7 +354,7 @@ def write_results(dataset_writer, patch_entries, use_90turn):
   for i,patch_entry in enumerate(patch_entries):
     if patch_entry is not None:
       (patch, mask, name, bbox, visible_perc, yaw, pitch, color) = patch_entry
-      imagefile = dataset_writer.addImage(image=patch, mask=mask)
+      imagefile = dataset_writer.addImage({'image': patch, 'mask': mask})
       car = {'imagefile': imagefile, 'name': name, 'score': visible_perc,
           'x1': int(bbox[0]), 'y1': int(bbox[1]), 'width': int(bbox[2]), 'height': int(bbox[3]),
           'yaw': yaw, 'pitch': pitch, 'color': color

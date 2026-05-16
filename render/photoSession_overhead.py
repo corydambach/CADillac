@@ -111,12 +111,20 @@ def render_session(job):
     car_azimuth = job['car_azimuth']
     car_az_rad = car_azimuth * pi / 180
 
+    ROLE_SHORT = {
+        'anchor': 'a',
+        'positive': 'p',
+        'negative_orientation': 'nr',
+        'negative_identity': 'ni',
+        'negative_translation': 'nt',
+    }
+
     # Build output prefix from job metadata
     group_id = job.get('group_id', 0)
     role = job.get('role', 'unknown')
     model_id = vehicles[0]['model_id']
     file_id = vehicles[0]['file_id']
-    out_prefix = 'g%06d_%s_%s' % (group_id, file_id, role)
+    out_prefix = 'g%d-%s' % (group_id, ROLE_SHORT.get(role, role))
 
     # Import vehicles and apply position + heading from job
     car_names = []
@@ -164,9 +172,9 @@ def render_session(job):
     # Render each snapshot
     for i in range(job['num_per_session']):
         # Random satellite viewing parameters
-        sat_azimuth = uniform(low=0, high=360)
-        ona = uniform(low=0, high=20)
-        sun_azimuth = uniform(low=0, high=360)
+        sat_azimuth  = uniform(low=0, high=360)
+        ona          = uniform(low=0, high=30)
+        sun_azimuth  = uniform(low=0, high=360)
         sun_altitude = uniform(low=SUN_ALTITUDE_MIN, high=SUN_ALTITUDE_MAX)
         weather = choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny'])
 
@@ -175,14 +183,6 @@ def render_session(job):
 
         # Weather and sun
         set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
-
-        # Clamp energy values to avoid negative values from normal() causing segfaults
-        sun_obj = bpy.data.objects.get('-Sun')
-        if sun_obj and sun_obj.data:
-            sun_obj.data.energy = max(0.1, sun_obj.data.energy)
-        world = bpy.data.worlds.get('World')
-        if world:
-            world.light_settings.environment_energy = max(0.1, world.light_settings.environment_energy)
 
         # Rotate scene for satellite azimuth
         sat_az_rad = sat_azimuth * pi / 180
@@ -201,7 +201,7 @@ def render_session(job):
             logging.info("PRE-RENDER %s rot_z=%.3f", name, obj.rotation_euler[2])
 
         # Render
-        raw_path = op.join(WORK_DIR, '%s_%03d_raw.png' % (out_prefix, i))
+        raw_path = op.join(WORK_DIR, '%s-%d_raw.png' % (out_prefix, i))
         bpy.data.scenes['Scene'].render.filepath = raw_path
 
         logging.info("Rendering %s_%03d  ONA=%.1f  sat_az=%.1f  car_az=%.1f",
@@ -236,7 +236,7 @@ def render_session(job):
             'sun_azimuth': float(sun_azimuth),
             'sun_altitude': float(sun_altitude),
         }
-        with open(op.join(WORK_DIR, '%s_%03d.json' % (out_prefix, i)), 'w') as f:
+        with open(op.join(WORK_DIR, '%s-%d.json' % (out_prefix, i)), 'w') as f:
             json.dump(out_info, f, indent=2)
 
         logging.info("Snapshot %d done", i)
