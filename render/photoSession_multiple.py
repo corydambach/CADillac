@@ -36,9 +36,9 @@ CAMERA_DIST = 50.0
 # These place the camera at the correct position and orient it toward the origin.
 VIEW_CONFIG = {
     'top':   {'location': (0, 0, CAMERA_DIST),            'rotation': (0, 0, 0)},
-    'front': {'location': (0, -CAMERA_DIST, 0),           'rotation': (pi / 2, 0, 0)},
-    'rear':  {'location': (0, CAMERA_DIST, 0),            'rotation': (pi / 2, 0, pi)},
-    'side':  {'location': (CAMERA_DIST, 0, 0),            'rotation': (pi / 2, 0, pi / 2)},
+    'side':  {'location': (0, -CAMERA_DIST, 0),           'rotation': (pi / 2, 0, 0)},
+    'rear':  {'location': (-CAMERA_DIST, 0, 0),            'rotation': (pi / 2, 0, -pi / 2)},
+    'front': {'location': (CAMERA_DIST, 0, 0),            'rotation': (pi / 2, 0, pi / 2)},
 }
 
 
@@ -98,8 +98,8 @@ def setup_scene():
 
     # White background
     world = bpy.data.worlds['World']
-    world.horizon_color = (1, 1, 1)
-    world.zenith_color = (1, 1, 1)
+    world.horizon_color = (0, 0, 0)
+    world.zenith_color  = (0, 0, 0)
 
     # Neutral lighting: bright, even, overhead sun
     set_weather({'weather': 'Sunny', 'sun_altitude': 80, 'sun_azimuth': 180})
@@ -123,6 +123,17 @@ def render_vehicle(job, work_dir):
 
     logging.info("Processing %s (file_id=%s)", model_id, file_id)
 
+    # Check which views still need rendering
+    views_needed = []
+    for view_name in views:
+        out_path = op.join(work_dir, '%s_%s.png' % (file_id, view_name))
+        if not op.exists(out_path):
+            views_needed.append(view_name)
+
+    if not views_needed:
+        logging.info("  All views exist, skipping %s", model_id)
+        return
+
     # Reload base scene from scratch
     setup_scene()
 
@@ -133,7 +144,7 @@ def render_vehicle(job, work_dir):
     bpy.context.scene.update()
 
     # Render each view
-    for view_name in views:
+    for view_name in views_needed:
         setup_camera(view_name)
         bpy.context.scene.update()
 
@@ -146,7 +157,7 @@ def render_vehicle(job, work_dir):
         except Exception as e:
             logging.error("  Render error for %s_%s: %s", file_id, view_name, str(e))
 
-    logging.info("  Done: %s (%d views)", model_id, len(views))
+    logging.info("  Done: %s (%d views rendered, %d skipped)", model_id, len(views_needed), len(views) - len(views_needed))
 
 
 # ── ENTRY POINT ─────────────────────────────────────────────────────

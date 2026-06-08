@@ -20,7 +20,6 @@ from glob import glob
 
 OUTPUT_SIZE = 32
 
-
 def get_models(db_path, clause="WHERE error IS NULL AND dims_L IS NOT NULL", limit=None):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
