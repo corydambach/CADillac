@@ -148,11 +148,11 @@ def random_translation(min_m, max_m):
 
 def sample_conditions(args):
     return {
-        'sat_azimuth':  uniform(0, 360),
-        'ona':          uniform(0, 30),
-        'sun_azimuth':  uniform(0, 360),
-        'sun_altitude': uniform(args.sun_alt_min, args.sun_alt_max),
-        'weather':      choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny']),
+        'sat_azimuth':     uniform(0, 360),
+        'off_nadir_angle': uniform(0, 30),
+        'sun_azimuth':     uniform(0, 360),
+        'sun_altitude':    uniform(25, 35),
+        'weather':         choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny']),
     }
 
 
@@ -169,17 +169,30 @@ def build_group_jobs(model, model_index, models, job_id, group_id, args,
         ('negative_orientation',   model,     neg_azimuth, 0.0, 0.0),
         ('negative_identity',      neg_model, car_azimuth, 0.0, 0.0),
         ('negative_translation',   model,     car_azimuth, bg_dx, bg_dy),
+        ('negative_empty',         None,      0.0,         0.0, 0.0),
     ]
 
     jobs = []
     for role, mdl, az, dx, dy in roles:
-        for _ in range(args.num_per_session):
+        for sample_idx in range(args.num_per_session):
             cond = sample_conditions(args)
-            jobs.append(build_job(
-                mdl, job_id, role, group_id, az,
-                car_x=dx, car_y=dy, road_texture=road_texture,
+            vehicles = []
+            if mdl is not None:
+                v = dict(mdl)
+                v['x'] = float(dx)
+                v['y'] = float(dy)
+                vehicles = [v]
+            jobs.append({
+                'job_id': job_id,
+                'group_id': group_id,
+                'role': role,
+                'sample_idx': sample_idx,
+                'car_azimuth': float(az),
+                'vehicles': vehicles,
+                'road_texture': road_texture,
+                'logging': 20,
                 **cond,
-            ))
+            })
             job_id += 1
 
     return jobs, job_id
@@ -193,20 +206,19 @@ def build_test_sun_jobs(models, args, road_texture=None):
     model = models[0]
 
     jobs = []
-    job_id = 0
-    for sat_az in sat_azimuths:
-        for sun_az in sun_azimuths:
-            jobs.append(build_job(
-                model, job_id, 'anchor', 0,
-                car_azimuth=0.0,
-                sat_azimuth=float(sat_az),
-                ona=0.0,
-                sun_azimuth=float(sun_az),
-                sun_altitude=70.0,
-                weather='Sunny',
-                road_texture=road_texture,
-            ))
-            job_id += 1
+    for job_id, (sat_az, sun_az) in enumerate(
+        [(s, u) for s in sat_azimuths for u in sun_azimuths]
+    ):
+        jobs.append( build_job(
+            model, job_id, 'anchor', job_id,
+            car_azimuth=0.0,
+            sat_azimuth=float(sat_az),
+            ona=0.0,
+            sun_azimuth=float(sun_az),
+            sun_altitude=70.0,
+            weather='Sunny',
+            road_texture=road_texture,
+        ))
 
     return jobs
 
@@ -233,13 +245,13 @@ if __name__ == "__main__":
     parser.add_argument('--blender', default=r'E:\Downloads\blender-2.79b-windows64\blender.exe')
     parser.add_argument('--script', default=r'D:\Proj\study\cadillac\CADillac\render\photoSession_overhead_batch.py')
     parser.add_argument('--work_dir', default=r'D:\tmp\cadillac_renders')
-    parser.add_argument('--count', type=int, default=5)
+    parser.add_argument('--count', required=True, type=int)
     parser.add_argument('--sessions_per_model', type=int, default=1)
     parser.add_argument('--num_per_session', type=int, default=1)
     parser.add_argument('--orientation_delta', type=float, default=90.0)
     parser.add_argument('--bg_shift_min_m', type=float, default=0.6)
     parser.add_argument('--bg_shift_max_m', type=float, default=1.5)
-    parser.add_argument('--road_texture_dir', default=None)
+    parser.add_argument('--road_texture_dir', required=True)
     parser.add_argument('--clause', default='WHERE error IS NULL AND dims_L IS NOT NULL')
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--test_sun', action='store_true',
@@ -273,8 +285,8 @@ if __name__ == "__main__":
             for j in range(args.sessions_per_model):
                 group_id = i * args.sessions_per_model + j
                 road_texture = pick_road_texture(road_textures)
-                jobs = build_group_jobs(model, i, models, job_id, group_id, args,
-                                        road_texture=road_texture)
+                [jobs, job_id] = build_group_jobs(model, i, models, job_id, group_id, args,
+                                                  road_texture=road_texture)
                 all_jobs.extend(jobs)
 
     print("Generated %d jobs total" % len(all_jobs))

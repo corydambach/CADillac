@@ -44,6 +44,7 @@ ROLE_SHORT = {
     'negative_orientation': 'nr',
     'negative_identity': 'ni',
     'negative_translation': 'nt',
+    'negative_empty': 'ne',
 }
 
 
@@ -106,9 +107,11 @@ def render_one_job(job, work_dir):
 
     group_id = job.get('group_id', 0)
     role = job.get('role', 'unknown')
-    model_id = vehicles[0]['model_id']
+    model_id = vehicles[0]['model_id'] if vehicles else 'none'
     job_id = job.get('job_id', 0)
-    out_prefix = 'g%d-%s-%d' % (group_id, ROLE_SHORT.get(role, role), job_id)
+    sample_idx = job.get('sample_idx', 0)
+    # out_prefix = 'g%d-%s-%d' % (group_id, ROLE_SHORT.get(role, role), job_id)
+    out_prefix = 'g%d-%s-%d' % (group_id, ROLE_SHORT.get(role, role), sample_idx)
 
     # Import vehicles
     car_names = []
@@ -144,6 +147,7 @@ def render_one_job(job, work_dir):
         road_textures = glob(op.join(ROAD_TEXTURE_DIR, '*.*'))
         if road_textures:
             bpy.data.images['ground'].filepath = choice(road_textures)
+    bpy.data.images['ground'].reload()
 
     setup_camera(ona)
     set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
@@ -151,7 +155,7 @@ def render_one_job(job, work_dir):
     scene_objects = car_names + ['-Ground', '-Sun']
     for name in scene_objects:
         obj = bpy.data.objects[name]
-        if obj.data:
+        if obj.type == 'MESH':
             obj.data.transform(Matrix.Rotation(-sat_az_rad, 4, 'Z'))
         else:
             obj.rotation_euler[2] -= sat_az_rad
@@ -173,10 +177,6 @@ def render_one_job(job, work_dir):
         'role':            role,
         'model_id':        model_id,
         'file_id':         out_prefix,
-        'color':           vehicles[0].get('color',   'unknown'),
-        'car_azimuth':     float(car_azimuth),
-        'car_x':           float(vehicles[0].get('x', 0.0)),
-        'car_y':           float(vehicles[0].get('y', 0.0)),
         'sat_azimuth':     float(sat_azimuth),
         'off_nadir_angle': float(ona),
         'pixel_size_m':    PIXEL_SIZE_METERS,
@@ -184,6 +184,14 @@ def render_one_job(job, work_dir):
         'sun_azimuth':     float(sun_azimuth),
         'sun_altitude':    float(sun_altitude),
     }
+
+    if vehicles:
+        out_info.update({
+            'color': vehicles[0].get('color', 'unknown'),
+            'car_azimuth': float(car_azimuth),
+            'car_x': float(vehicles[0].get('x', 0.0)),
+            'car_y': float(vehicles[0].get('y', 0.0)),
+        })
     with open(op.join(work_dir, '%s.json' % out_prefix), 'w') as f:
         json.dump(out_info, f, indent=2)
 
