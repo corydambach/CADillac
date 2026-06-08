@@ -86,10 +86,8 @@ def render_one_job(job, work_dir):
     vehicles = job['vehicles']
 
     bpy.ops.object.select_all(action='DESELECT')
-
     bpy.context.scene.render.resolution_x = RENDER_SIZE
     bpy.context.scene.render.resolution_y = RENDER_SIZE
-
     bpy.data.worlds['World'].mist_settings.use_mist = False
 
     if bpy.context.scene.node_tree:
@@ -99,11 +97,18 @@ def render_one_job(job, work_dir):
 
     car_azimuth = job['car_azimuth']
     car_az_rad = car_azimuth * pi / 180
+    sat_azimuth = job['sat_azimuth']
+    sat_az_rad = sat_azimuth * pi / 180
+    ona = job['off_nadir_angle']
+    sun_azimuth = job['sun_azimuth']
+    sun_altitude = job['sun_altitude']
+    weather = job['weather']
 
     group_id = job.get('group_id', 0)
     role = job.get('role', 'unknown')
     model_id = vehicles[0]['model_id']
-    out_prefix = 'g%d-%s' % (group_id, ROLE_SHORT.get(role, role))
+    job_id = job.get('job_id', 0)
+    out_prefix = 'g%d-%s-%d' % (group_id, ROLE_SHORT.get(role, role), job_id)
 
     # Import vehicles
     car_names = []
@@ -140,64 +145,47 @@ def render_one_job(job, work_dir):
         if road_textures:
             bpy.data.images['ground'].filepath = choice(road_textures)
 
-    scene_objects = car_names + ['-Ground']
+    setup_camera(ona)
+    set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
 
-    for i in range(job['num_per_session']):
-        sat_azimuth  = uniform(low=0, high=360)
-        ona          = uniform(low=0, high=30)
-        sun_azimuth  = uniform(low=0, high=360)
-        sun_altitude = uniform(low=SUN_ALTITUDE_MIN, high=SUN_ALTITUDE_MAX)
-        weather = choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny'])
+    scene_objects = car_names + ['-Ground', '-Sun']
+    for name in scene_objects:
+        obj = bpy.data.objects[name]
+        if obj.data:
+            obj.data.transform(Matrix.Rotation(-sat_az_rad, 4, 'Z'))
+        else:
+            obj.rotation_euler[2] -= sat_az_rad
 
-        setup_camera(ona)
-        set_weather({'weather': weather, 'sun_altitude': sun_altitude, 'sun_azimuth': sun_azimuth})
+    bpy.context.scene.update()
 
-        sat_az_rad = sat_azimuth * pi / 180
-        for name in scene_objects:
-            obj = bpy.data.objects[name]
-            if obj.data:
-                obj.data.transform(Matrix.Rotation(-sat_az_rad, 4, 'Z'))
-            else:
-                obj.rotation_euler[2] -= sat_az_rad
+    raw_path = op.join(work_dir, '%s_raw.png' % out_prefix)
+    bpy.data.scenes['Scene'].render.filepath = raw_path
 
-        bpy.context.scene.update()
+    logging.info("[job %d] Rendering %s  ONA=%.1f  sat_az=%.1f  car_az=%.1f",
+                 job_id, out_prefix, ona, sat_azimuth, car_azimuth)
+    try:
+        bpy.ops.render.render(write_still=True)
+    except Exception as e:
+        logging.error("Render error: %s", str(e))
 
-        raw_path = op.join(work_dir, '%s-%d_raw.png' % (out_prefix, i))
-        bpy.data.scenes['Scene'].render.filepath = raw_path
-
-        logging.info("[job %d] Rendering %s-%d  ONA=%.1f  sat_az=%.1f  car_az=%.1f",
-                     job.get('job_id', -1), out_prefix, i, ona, sat_azimuth, car_azimuth)
-        try:
-            bpy.ops.render.render(write_still=True)
-        except Exception as e:
-            logging.error("Render error: %s", str(e))
-
-        # Undo scene rotation (in case anything later reads from it)
-        for name in scene_objects:
-            obj = bpy.data.objects[name]
-            if obj.data:
-                obj.data.transform(Matrix.Rotation(sat_az_rad, 4, 'Z'))
-            else:
-                obj.rotation_euler[2] += sat_az_rad
-
-        out_info = {
-            'group_id': group_id,
-            'role': role,
-            'model_id': model_id,
-            'file_id': out_prefix,
-            'color': vehicles[0].get('color', 'unknown'),
-            'car_azimuth': float(car_azimuth),
-            'car_x': float(vehicles[0].get('x', 0.0)),
-            'car_y': float(vehicles[0].get('y', 0.0)),
-            'sat_azimuth': float(sat_azimuth),
-            'off_nadir_angle': float(ona),
-            'pixel_size_m': PIXEL_SIZE_METERS,
-            'weather': weather,
-            'sun_azimuth': float(sun_azimuth),
-            'sun_altitude': float(sun_altitude),
-        }
-        with open(op.join(work_dir, '%s-%d.json' % (out_prefix, i)), 'w') as f:
-            json.dump(out_info, f, indent=2)
+    out_info = {
+        'group_id':        group_id,
+        'role':            role,
+        'model_id':        model_id,
+        'file_id':         out_prefix,
+        'color':           vehicles[0].get('color',   'unknown'),
+        'car_azimuth':     float(car_azimuth),
+        'car_x':           float(vehicles[0].get('x', 0.0)),
+        'car_y':           float(vehicles[0].get('y', 0.0)),
+        'sat_azimuth':     float(sat_azimuth),
+        'off_nadir_angle': float(ona),
+        'pixel_size_m':    PIXEL_SIZE_METERS,
+        'weather':         weather,
+        'sun_azimuth':     float(sun_azimuth),
+        'sun_altitude':    float(sun_altitude),
+    }
+    with open(op.join(work_dir, '%s.json' % out_prefix), 'w') as f:
+        json.dump(out_info, f, indent=2)
 
 
 def run_batch(jobs, work_dir):

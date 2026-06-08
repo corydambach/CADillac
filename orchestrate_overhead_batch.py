@@ -91,26 +91,27 @@ def get_models(db_path, clause="WHERE error IS NULL AND dims_L IS NOT NULL", lim
     return models
 
 
-def build_job(model, job_id, num_per_session, role, group_id,
-              car_azimuth, car_x=0.0, car_y=0.0, road_texture=None):
+def build_job(model, job_id, role, group_id, car_azimuth,
+              sat_azimuth, ona, sun_azimuth, sun_altitude, weather,
+              car_x=0.0, car_y=0.0, road_texture=None):
     vehicle = dict(model)
     vehicle['x'] = float(car_x)
     vehicle['y'] = float(car_y)
 
-    job = {
-        'job_id': job_id,
-        'group_id': group_id,
-        'role': role,
-        'num_per_session': num_per_session,
-        'car_azimuth': float(car_azimuth),
-        'logging': 20,
-        'vehicles': [vehicle],
+    return {
+        'job_id':          job_id,
+        'group_id':        group_id,
+        'role':            role,
+        'car_azimuth':     float(car_azimuth),
+        'sat_azimuth':     float(sat_azimuth),
+        'off_nadir_angle': float(ona),
+        'sun_azimuth':     float(sun_azimuth),
+        'sun_altitude':    float(sun_altitude),
+        'weather':         weather,
+        'road_texture':    road_texture,
+        'logging':         20,
+        'vehicles':        [vehicle],
     }
-
-    if road_texture:
-        job['road_texture'] = road_texture
-
-    return job
 
 
 def pick_different_model(models, current_index):
@@ -145,6 +146,16 @@ def random_translation(min_m, max_m):
     return dx, dy
 
 
+def sample_conditions(args):
+    return {
+        'sat_azimuth':  uniform(0, 360),
+        'ona':          uniform(0, 30),
+        'sun_azimuth':  uniform(0, 360),
+        'sun_altitude': uniform(args.sun_alt_min, args.sun_alt_max),
+        'weather':      choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny']),
+    }
+
+
 def build_group_jobs(model, model_index, models, job_id, group_id, args,
                      road_texture=None):
     car_azimuth = uniform(0, 360)
@@ -152,24 +163,52 @@ def build_group_jobs(model, model_index, models, job_id, group_id, args,
     neg_model = pick_different_model(models, model_index)
     bg_dx, bg_dy = random_translation(args.bg_shift_min_m, args.bg_shift_max_m)
 
-    return [
-        build_job(model, job_id, args.num_per_session,
-                  'anchor', group_id, car_azimuth,
-                  road_texture=road_texture),
-        build_job(model, job_id + 1, args.num_per_session,
-                  'positive', group_id, car_azimuth,
-                  road_texture=road_texture),
-        build_job(model, job_id + 2, args.num_per_session,
-                  'negative_orientation', group_id, neg_azimuth,
-                  road_texture=road_texture),
-        build_job(neg_model, job_id + 3, args.num_per_session,
-                  'negative_identity', group_id, car_azimuth,
-                  road_texture=road_texture),
-        build_job(model, job_id + 4, args.num_per_session,
-                  'negative_translation', group_id, car_azimuth,
-                  car_x=bg_dx, car_y=bg_dy,
-                  road_texture=road_texture),
+    roles = [
+        ('anchor',                 model,     car_azimuth, 0.0, 0.0),
+        ('positive',               model,     car_azimuth, 0.0, 0.0),
+        ('negative_orientation',   model,     neg_azimuth, 0.0, 0.0),
+        ('negative_identity',      neg_model, car_azimuth, 0.0, 0.0),
+        ('negative_translation',   model,     car_azimuth, bg_dx, bg_dy),
     ]
+
+    jobs = []
+    for role, mdl, az, dx, dy in roles:
+        for _ in range(args.num_per_session):
+            cond = sample_conditions(args)
+            jobs.append(build_job(
+                mdl, job_id, role, group_id, az,
+                car_x=dx, car_y=dy, road_texture=road_texture,
+                **cond,
+            ))
+            job_id += 1
+
+    return jobs, job_id
+
+
+def build_test_sun_jobs(models, args, road_texture=None):
+    """Deterministic grid: sun azimuth x sat azimuth at fixed elevation.
+    Shadow direction should track sun regardless of sat rotation."""
+    sun_azimuths = list(range(0, 360, 45))
+    sat_azimuths = [0, 90, 180, 270]
+    model = models[0]
+
+    jobs = []
+    job_id = 0
+    for sat_az in sat_azimuths:
+        for sun_az in sun_azimuths:
+            jobs.append(build_job(
+                model, job_id, 'anchor', 0,
+                car_azimuth=0.0,
+                sat_azimuth=float(sat_az),
+                ona=0.0,
+                sun_azimuth=float(sun_az),
+                sun_altitude=70.0,
+                weather='Sunny',
+                road_texture=road_texture,
+            ))
+            job_id += 1
+
+    return jobs
 
 
 def collect_manifest(work_dir):
@@ -203,6 +242,8 @@ if __name__ == "__main__":
     parser.add_argument('--road_texture_dir', default=None)
     parser.add_argument('--clause', default='WHERE error IS NULL AND dims_L IS NOT NULL')
     parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--test_sun', action='store_true',
+                    help='Generate deterministic sun/sat azimuth grid for verification')
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -221,17 +262,20 @@ if __name__ == "__main__":
 
     print("\nBuilding jobs: %d models x %d sessions x %d roles..." % (
         len(models), args.sessions_per_model, len(ROLES)))
-
-    all_jobs = []
-    job_id = 0
-    for i, model in enumerate(models):
-        for j in range(args.sessions_per_model):
-            group_id = i * args.sessions_per_model + j
-            road_texture = pick_road_texture(road_textures)
-            jobs = build_group_jobs(model, i, models, job_id, group_id, args,
-                                    road_texture=road_texture)
-            all_jobs.extend(jobs)
-            job_id += len(jobs)
+    if args.test_sun:
+        print("TEST MODE: generating sun verification grid...")
+        road_texture = pick_road_texture(road_textures)
+        all_jobs = build_test_sun_jobs(models, args, road_texture=road_texture)
+    else:
+        all_jobs = []
+        job_id = 0
+        for i, model in enumerate(models):
+            for j in range(args.sessions_per_model):
+                group_id = i * args.sessions_per_model + j
+                road_texture = pick_road_texture(road_textures)
+                jobs = build_group_jobs(model, i, models, job_id, group_id, args,
+                                        road_texture=road_texture)
+                all_jobs.extend(jobs)
 
     print("Generated %d jobs total" % len(all_jobs))
 
