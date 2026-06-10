@@ -151,7 +151,7 @@ def sample_conditions(args):
         'sat_azimuth':     uniform(0, 360),
         'off_nadir_angle': uniform(0, 30),
         'sun_azimuth':     uniform(0, 360),
-        'sun_altitude':    uniform(25, 35),
+        'sun_altitude':    uniform(25, 90),
         'weather':         choice(['Sunny', 'Cloudy', 'Sunny', 'Sunny']),
     }
 
